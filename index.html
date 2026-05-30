@@ -600,14 +600,14 @@
         <div class="layout">
           <div class="uploader">
             <h2>Add a magazine</h2>
-            <p class="hint">A cover image and a PDF.</p>
+            <p class="hint">A cover image and a PDF or HTML file.</p>
             <div class="field"><label>Title</label><input id="mg_title" placeholder="Luxura Lookbook" /></div>
             <div class="field"><label>Issue (optional)</label><input id="mg_issue" placeholder="Spring 2026" /></div>
             <div class="field"><label>Published date (optional)</label><input id="mg_date" type="date" /></div>
             <div class="field"><label>Description (optional)</label><textarea id="mg_desc" rows="2"
                 placeholder="A line about this issue"></textarea></div>
             <div class="field"><label>Cover image</label><input id="mg_cover" type="file" accept="image/*" /></div>
-            <div class="field"><label>PDF file</label><input id="mg_pdf" type="file" accept="application/pdf" /></div>
+            <div class="field"><label>Magazine file</label><input id="mg_pdf" type="file" accept="application/pdf,text/html" /></div>
             <button class="primary" id="mg_upload">Publish</button>
           </div>
           <div>
@@ -824,7 +824,7 @@
       const title = $("mg_title").value.trim();
       const cover = $("mg_cover").files[0], pdf = $("mg_pdf").files[0];
       if (!title) { toast("Add a title", true); return; }
-      if (!pdf) { toast("Add a PDF", true); return; }
+      if (!pdf) { toast("Add a file", true); return; }
       const btn = $("mg_upload"); btn.disabled = true; btn.textContent = "Publishing…";
       try {
         await callAdmin({
@@ -852,7 +852,7 @@
       <img src="${m.cover_url || ""}" alt="" />
       <div class="info"><div class="iss">${m.issue || "Lookbook"}</div>
         <h3>${m.title}</h3><div class="ds">${m.description || ""}</div>
-        <a href="${m.pdf_url}" target="_blank" rel="noopener">Open PDF →</a></div>`;
+        <a href="${m.pdf_url}" target="_blank" rel="noopener">Open file →</a></div>`;
         el.querySelector(".del").onclick = () => deleteMagazine(m);
         list.appendChild(el);
       }
