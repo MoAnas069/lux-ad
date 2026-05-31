@@ -388,6 +388,27 @@
       opacity: 1
     }
 
+    .edit-btn {
+      position: absolute;
+      top: 8px;
+      right: 42px;
+      background: rgba(28, 26, 23, .78);
+      color: #fff;
+      border: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      font-size: 1rem;
+      line-height: 1;
+      opacity: 0;
+      transition: .2s
+    }
+
+    .photo:hover .edit-btn,
+    .magrow:hover .edit-btn {
+      opacity: 1
+    }
+
     .magrow {
       display: flex;
       gap: 16px;
@@ -584,6 +605,7 @@
               <input id="ph_files" type="file" accept="image/*" multiple hidden />
             </div>
             <div class="filelist" id="ph_filelist"></div>
+            <input type="hidden" id="ph_edit_id" />
             <button class="primary" id="ph_upload" style="margin-top:16px" disabled>Upload</button>
           </div>
           <div>
@@ -608,6 +630,7 @@
                 placeholder="A line about this issue"></textarea></div>
             <div class="field"><label>Cover image</label><input id="mg_cover" type="file" accept="image/*" /></div>
             <div class="field"><label>Magazine file</label><input id="mg_pdf" type="file" accept="application/pdf,text/html" /></div>
+            <input type="hidden" id="mg_edit_id" />
             <button class="primary" id="mg_upload">Publish</button>
           </div>
           <div>
@@ -777,23 +800,49 @@
     ["dragover", "dragleave", "drop"].forEach(ev => $("ph_drop").addEventListener(ev, e => e.preventDefault()));
     $("ph_drop").addEventListener("drop", e => { $("ph_files").files = e.dataTransfer.files; $("ph_files").onchange(); });
 
+    function beginEditPhoto(p) {
+      $("ph_edit_id").value = p.id;
+      $("ph_cat").value = p.category || "";
+      $("ph_cap").value = p.caption || p.title || "";
+      $("ph_upload").textContent = "Update Photo";
+      $("ph_upload").disabled = false;
+      document.querySelector('#photos .uploader h2').textContent = "Edit photo";
+      $("ph_drop").scrollIntoView({ behavior: 'smooth' });
+    }
+
     $("ph_upload").onclick = async () => {
-      const files = [...$("ph_files").files]; if (!files.length) return;
+      const editId = $("ph_edit_id").value;
+      const files = [...$("ph_files").files]; 
+      if (!editId && !files.length) return;
       const btn = $("ph_upload"); btn.disabled = true;
       let ok = 0;
-      for (let i = 0; i < files.length; i++) {
-        btn.textContent = `Uploading ${i + 1}/${files.length}…`;
+      
+      if (editId) {
+        btn.textContent = "Updating…";
         try {
           await callAdmin({
-            action: "upload_photo", file: files[i],
+            action: "edit_photo", id: editId, file: files[0] || null,
             category: $("ph_cat").value.trim(), caption: $("ph_cap").value.trim()
           });
-          ok++;
+          toast("Photo updated");
         } catch (err) { toast("Failed: " + err.message, true); }
+        $("ph_edit_id").value = "";
+        document.querySelector('#photos .uploader h2').textContent = "Add photos";
+      } else {
+        for (let i = 0; i < files.length; i++) {
+          btn.textContent = `Uploading ${i + 1}/${files.length}…`;
+          try {
+            await callAdmin({
+              action: "upload_photo", file: files[i],
+              category: $("ph_cat").value.trim(), caption: $("ph_cap").value.trim()
+            });
+            ok++;
+          } catch (err) { toast("Failed: " + err.message, true); }
+        }
+        if (ok) toast(`${ok} photo(s) uploaded`);
       }
       btn.textContent = "Upload"; btn.disabled = false;
       $("ph_files").value = ""; $("ph_filelist").textContent = ""; $("ph_cat").value = ""; $("ph_cap").value = "";
-      if (ok) toast(`${ok} photo(s) uploaded`);
       loadPhotos();
     };
 
@@ -805,10 +854,11 @@
       $("ph_empty").style.display = data.length ? "none" : "block";
       for (const p of data) {
         const el = document.createElement("div"); el.className = "photo";
-        el.innerHTML = `<button class="del" title="Delete">×</button>
+        el.innerHTML = `<button class="edit-btn" title="Edit">✎</button><button class="del" title="Delete">×</button>
       <img src="${p.image_url}" alt="" />
       <div class="meta"><div class="t">${p.caption || p.title || "Untitled"}</div>
       <div class="c">${p.category || "—"}</div></div>`;
+        el.querySelector(".edit-btn").onclick = () => beginEditPhoto(p);
         el.querySelector(".del").onclick = () => deletePhoto(p);
         grid.appendChild(el);
       }
@@ -820,24 +870,39 @@
     }
 
     /* ---------- magazines ---------- */
+    function beginEditMagazine(m) {
+      $("mg_edit_id").value = m.id;
+      $("mg_title").value = m.title || "";
+      $("mg_issue").value = m.issue || "";
+      $("mg_desc").value = m.description || "";
+      $("mg_date").value = m.published_at ? m.published_at.split('T')[0] : "";
+      $("mg_upload").textContent = "Update Magazine";
+      document.querySelector('#magazines .uploader h2').textContent = "Edit magazine";
+      $("mg_title").scrollIntoView({ behavior: 'smooth' });
+    }
+
     $("mg_upload").onclick = async () => {
+      const editId = $("mg_edit_id").value;
       const title = $("mg_title").value.trim();
       const cover = $("mg_cover").files[0], pdf = $("mg_pdf").files[0];
       if (!title) { toast("Add a title", true); return; }
-      if (!pdf) { toast("Add a file", true); return; }
-      const btn = $("mg_upload"); btn.disabled = true; btn.textContent = "Publishing…";
+      if (!editId && !pdf) { toast("Add a file", true); return; }
+      const btn = $("mg_upload"); btn.disabled = true; btn.textContent = editId ? "Updating…" : "Publishing…";
       try {
         await callAdmin({
-          action: "upload_magazine", title,
-          issue: $("mg_issue").value.trim(), description: $("mg_desc").value.trim(),
-          published_at: $("mg_date").value, cover: cover || null, pdf
+          action: editId ? "edit_magazine" : "upload_magazine",
+          ...(editId ? { id: editId } : {}),
+          title, issue: $("mg_issue").value.trim(), description: $("mg_desc").value.trim(),
+          published_at: $("mg_date").value, cover: cover || null, pdf: pdf || null
         });
-        toast("Magazine published");
+        toast(editId ? "Magazine updated" : "Magazine published");
         ["mg_title", "mg_issue", "mg_desc", "mg_date"].forEach(i => $(i).value = "");
         $("mg_cover").value = ""; $("mg_pdf").value = "";
+        $("mg_edit_id").value = "";
+        document.querySelector('#magazines .uploader h2').textContent = "Add a magazine";
         loadMagazines();
       } catch (err) { toast("Failed: " + err.message, true); }
-      btn.disabled = false; btn.textContent = "Publish";
+      btn.disabled = false; btn.textContent = editId ? "Update Magazine" : "Publish";
     };
 
     async function loadMagazines() {
@@ -848,11 +913,12 @@
       $("mg_empty").style.display = data.length ? "none" : "block";
       for (const m of data) {
         const el = document.createElement("div"); el.className = "magrow";
-        el.innerHTML = `<button class="del" title="Delete">×</button>
+        el.innerHTML = `<button class="edit-btn" title="Edit">✎</button><button class="del" title="Delete">×</button>
       <img src="${m.cover_url || ""}" alt="" />
       <div class="info"><div class="iss">${m.issue || "Lookbook"}</div>
         <h3>${m.title}</h3><div class="ds">${m.description || ""}</div>
         <a href="${m.pdf_url}" target="_blank" rel="noopener">Open file →</a></div>`;
+        el.querySelector(".edit-btn").onclick = () => beginEditMagazine(m);
         el.querySelector(".del").onclick = () => deleteMagazine(m);
         list.appendChild(el);
       }
