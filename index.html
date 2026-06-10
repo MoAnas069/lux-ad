@@ -559,6 +559,80 @@
       font-size: .84rem;
       margin-bottom: 16px
     }
+
+    /* Multi-select styling */
+    .photo-checkbox {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid rgba(28, 26, 23, 0.4);
+      background: rgba(250, 248, 243, 0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .selection-mode .photo-checkbox {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .photo.selected .photo-checkbox {
+      background: var(--brass);
+      border-color: var(--brass);
+      transform: scale(1.1);
+    }
+
+    .photo.selected .photo-checkbox::after {
+      content: "✓";
+      color: #fff;
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .photo {
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .selection-mode .photo {
+      cursor: pointer;
+    }
+
+    .photo.selected {
+      border-color: var(--brass);
+      box-shadow: 0 0 0 2px var(--brass-soft), var(--shadow);
+    }
+
+    /* Hide individual hover actions in selection mode */
+    .selection-mode .photo:hover .edit-btn,
+    .selection-mode .photo:hover .del {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
+    .gallery-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    #btn_delete_selected:hover {
+      background: var(--danger) !important;
+      color: #fff !important;
+      border-color: var(--danger) !important;
+    }
+
+    #btn_delete_selected:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 
@@ -637,8 +711,18 @@
             <button class="primary" id="ph_upload" style="margin-top:16px" disabled>Upload</button>
           </div>
           <div>
-            <div class="sectionhead">
-              <h2>Gallery</h2><span class="count" id="ph_count"></span>
+            <div class="sectionhead" style="align-items: center;">
+              <div style="display: flex; align-items: baseline; gap: 12px;">
+                <h2>Gallery</h2>
+                <span class="count" id="ph_count"></span>
+              </div>
+              <div class="gallery-actions">
+                <button id="btn_toggle_select" class="ghost" style="padding: 6px 12px; font-size: 0.8rem;">Select Multiple</button>
+                <div id="selection_controls" style="display: none; gap: 8px; align-items: center;">
+                  <button id="btn_select_all" class="ghost" style="padding: 6px 12px; font-size: 0.8rem;">Select All</button>
+                  <button id="btn_delete_selected" class="ghost" style="padding: 6px 12px; font-size: 0.8rem; border-color: var(--danger); color: var(--danger); background: rgba(154, 59, 50, 0.05);" disabled>Delete (<span id="selected_count">0</span>)</button>
+                </div>
+              </div>
             </div>
             <div class="grid" id="ph_grid"></div>
             <div class="empty" id="ph_empty" style="display:none">No photos yet.</div>
@@ -680,6 +764,8 @@
     let db;
     let FN_URL;
     let PASSWORD = "";
+    let isSelectionMode = false;
+    const selectedPhotoIds = new Set();
     const $ = (id) => document.getElementById(id);
     function toast(msg, err) { const t = $("toast"); t.textContent = msg; t.className = "show" + (err ? " err" : ""); setTimeout(() => t.className = "", 2800); }
 
@@ -870,6 +956,7 @@
       document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
       document.querySelectorAll(".panel").forEach(x => x.classList.remove("active"));
       t.classList.add("active"); $(t.dataset.tab).classList.add("active");
+      toggleSelectionMode(false);
     });
 
     /* ---------- photos ---------- */
@@ -944,20 +1031,147 @@
       $("ph_empty").style.display = data.length ? "none" : "block";
       for (const p of data) {
         const el = document.createElement("div"); el.className = "photo";
-        el.innerHTML = `<button class="edit-btn" title="Edit">✎</button><button class="del" title="Delete">×</button>
+        if (selectedPhotoIds.has(p.id)) {
+          el.classList.add("selected");
+        }
+        el.dataset.id = p.id;
+        el.innerHTML = `<div class="photo-checkbox"></div><button class="edit-btn" title="Edit">✎</button><button class="del" title="Delete">×</button>
       <img src="${p.image_url}" alt="" />
       <div class="meta"><div class="t">${p.caption || p.title || "Untitled"}</div>
       <div class="c">${p.category || "—"}</div></div>`;
-        el.querySelector(".edit-btn").onclick = () => beginEditPhoto(p);
-        el.querySelector(".del").onclick = () => deletePhoto(p);
+        el.querySelector(".edit-btn").onclick = (e) => {
+          e.stopPropagation();
+          beginEditPhoto(p);
+        };
+        el.querySelector(".del").onclick = (e) => {
+          e.stopPropagation();
+          deletePhoto(p);
+        };
+        el.onclick = () => {
+          if (isSelectionMode) {
+            togglePhotoSelection(el, p.id);
+          }
+        };
         grid.appendChild(el);
       }
+      updateSelectedCount();
     }
     async function deletePhoto(p) {
       if (!confirm("Delete this photo?")) return;
       try { await callAdmin({ action: "delete_photo", id: p.id }); toast("Photo deleted"); loadPhotos(); }
       catch (e) { toast(e.message, true); }
     }
+
+    /* ---------- multi-select JS logic ---------- */
+    function toggleSelectionMode(forceState) {
+      isSelectionMode = typeof forceState === 'boolean' ? forceState : !isSelectionMode;
+      const grid = $("ph_grid");
+      const toggleBtn = $("btn_toggle_select");
+      const controls = $("selection_controls");
+      
+      toggleBtn.disabled = false;
+      
+      if (isSelectionMode) {
+        grid.classList.add("selection-mode");
+        controls.style.display = "flex";
+        toggleBtn.textContent = "Cancel";
+        toggleBtn.style.borderColor = "var(--muted)";
+        toggleBtn.style.color = "var(--muted)";
+      } else {
+        grid.classList.remove("selection-mode");
+        controls.style.display = "none";
+        toggleBtn.textContent = "Select Multiple";
+        toggleBtn.style.borderColor = "";
+        toggleBtn.style.color = "";
+        selectedPhotoIds.clear();
+        document.querySelectorAll("#ph_grid .photo").forEach(el => el.classList.remove("selected"));
+      }
+      updateSelectedCount();
+    }
+
+    function togglePhotoSelection(el, id) {
+      if (selectedPhotoIds.has(id)) {
+        selectedPhotoIds.delete(id);
+        el.classList.remove("selected");
+      } else {
+        selectedPhotoIds.add(id);
+        el.classList.add("selected");
+      }
+      updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+      const count = selectedPhotoIds.size;
+      $("selected_count").textContent = count;
+      $("btn_delete_selected").disabled = count === 0;
+      
+      const photos = document.querySelectorAll("#ph_grid .photo");
+      if (photos.length > 0 && count === photos.length) {
+        $("btn_select_all").textContent = "Deselect All";
+      } else {
+        $("btn_select_all").textContent = "Select All";
+      }
+    }
+
+    async function deleteSelectedPhotos() {
+      const count = selectedPhotoIds.size;
+      if (!count) return;
+      if (!confirm(`Are you sure you want to delete ${count} selected photo(s)?`)) return;
+      
+      const btn = $("btn_delete_selected");
+      const toggleBtn = $("btn_toggle_select");
+      btn.disabled = true;
+      toggleBtn.disabled = true;
+      btn.textContent = "Deleting…";
+      
+      let succeeded = 0;
+      let failed = 0;
+      
+      const ids = Array.from(selectedPhotoIds);
+      const results = await Promise.allSettled(
+        ids.map(id => callAdmin({ action: "delete_photo", id }))
+      );
+      
+      results.forEach(res => {
+        if (res.status === 'fulfilled') {
+          succeeded++;
+        } else {
+          failed++;
+          console.error(res.reason);
+        }
+      });
+      
+      if (succeeded) {
+        toast(`Successfully deleted ${succeeded} photo(s)`);
+      }
+      if (failed) {
+        toast(`Failed to delete ${failed} photo(s)`, true);
+      }
+      
+      toggleSelectionMode(false);
+      loadPhotos();
+    }
+
+    // Bind UI actions
+    $("btn_toggle_select").onclick = () => toggleSelectionMode();
+    $("btn_select_all").onclick = () => {
+      const photos = document.querySelectorAll("#ph_grid .photo");
+      const allSelected = Array.from(photos).every(el => el.classList.contains("selected"));
+      
+      if (allSelected) {
+        photos.forEach(el => el.classList.remove("selected"));
+        selectedPhotoIds.clear();
+      } else {
+        photos.forEach(el => {
+          el.classList.add("selected");
+          const id = el.dataset.id;
+          if (id) selectedPhotoIds.add(id);
+        });
+      }
+      updateSelectedCount();
+    };
+    $("btn_delete_selected").onclick = deleteSelectedPhotos;
+
 
     /* ---------- magazines ---------- */
     function beginEditMagazine(m) {
