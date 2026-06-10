@@ -737,6 +737,7 @@
             <p class="hint">A cover image and a PDF or HTML file.</p>
             <div class="field"><label>Title</label><input id="mg_title" placeholder="Luxura Lookbook" /></div>
             <div class="field"><label>Issue (optional)</label><input id="mg_issue" placeholder="Spring 2026" /></div>
+            <div class="field"><label>Category (optional)</label><input id="mg_cat" placeholder="e.g. Living" /></div>
             <div class="field"><label>Published date (optional)</label><input id="mg_date" type="date" /></div>
             <div class="field"><label>Description (optional)</label><textarea id="mg_desc" rows="2"
                 placeholder="A line about this issue"></textarea></div>
@@ -1035,8 +1036,11 @@
           el.classList.add("selected");
         }
         el.dataset.id = p.id;
+        const imgUrl = (p.image_url && p.image_url.includes('magazine_img_'))
+          ? `http://localhost:3000/new-collections-assets/${p.image_url.substring(p.image_url.lastIndexOf('/') + 1)}`
+          : p.image_url;
         el.innerHTML = `<div class="photo-checkbox"></div><button class="edit-btn" title="Edit">✎</button><button class="del" title="Delete">×</button>
-      <img src="${p.image_url}" alt="" />
+      <img src="${imgUrl}" alt="" />
       <div class="meta"><div class="t">${p.caption || p.title || "Untitled"}</div>
       <div class="c">${p.category || "—"}</div></div>`;
         el.querySelector(".edit-btn").onclick = (e) => {
@@ -1178,6 +1182,7 @@
       $("mg_edit_id").value = m.id;
       $("mg_title").value = m.title || "";
       $("mg_issue").value = m.issue || "";
+      $("mg_cat").value = m.category || "";
       $("mg_desc").value = m.description || "";
       $("mg_date").value = m.published_at ? m.published_at.split('T')[0] : "";
       $("mg_upload").textContent = "Update Magazine";
@@ -1202,11 +1207,11 @@
         await callAdmin({
           action: editId ? "edit_magazine" : "upload_magazine",
           ...(editId ? { id: editId } : {}),
-          title, issue: $("mg_issue").value.trim(), description: $("mg_desc").value.trim(),
+          title, issue: $("mg_issue").value.trim(), category: $("mg_cat").value.trim(), description: $("mg_desc").value.trim(),
           published_at: $("mg_date").value, cover: coverToSend, pdf: pdf || null
         });
         toast(editId ? "Magazine updated" : "Magazine published");
-        ["mg_title", "mg_issue", "mg_desc", "mg_date"].forEach(i => $(i).value = "");
+        ["mg_title", "mg_issue", "mg_cat", "mg_desc", "mg_date"].forEach(i => $(i).value = "");
         $("mg_cover").value = ""; $("mg_pdf").value = "";
         $("mg_edit_id").value = "";
         document.querySelector('#magazines .uploader h2').textContent = "Add a magazine";
@@ -1225,7 +1230,7 @@
         const el = document.createElement("div"); el.className = "magrow";
         el.innerHTML = `<button class="edit-btn" title="Edit">✎</button><button class="del" title="Delete">×</button>
       <img src="${m.cover_url || ""}" alt="" />
-      <div class="info"><div class="iss">${m.issue || "Lookbook"}</div>
+      <div class="info"><div class="iss">${m.issue || "Lookbook"} ${m.category ? `• ${m.category}` : ''}</div>
         <h3>${m.title}</h3><div class="ds">${m.description || ""}</div>
         <a href="${m.pdf_url}" target="_blank" rel="noopener">Open file →</a></div>`;
         el.querySelector(".edit-btn").onclick = () => beginEditMagazine(m);
